@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import User
-from app.schemas.user import UserCreate
+from app.schemas.user import UserCreate, UserUpdate
 from app.services.security import (
     hash_password,
     verify_password,
@@ -59,3 +59,32 @@ def authenticate_user(db: Session, username: str, password: str) -> User | None:
         return None
 
     return user
+
+
+def update_user(db: Session, user: User, data: UserUpdate) -> User:
+    """Aplica uma atualização parcial no usuário.
+
+    `exclude_unset` distingue "campo não enviado" de "campo enviado como null" —
+    sem isso, um PATCH que muda só o username apagaria a senha.
+    """
+    changes = data.model_dump(exclude_unset=True, exclude_none=True)
+
+    new_username = changes.get("username")
+    if new_username is not None and new_username != user.username:
+        if get_user_by_username(db, new_username) is not None:
+            raise UsernameAlreadyExistsError(new_username)
+        user.username = new_username
+
+    new_password = changes.get("password")
+    if new_password is not None:
+        user.password_hash = hash_password(new_password)
+
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+def delete_user(db: Session, user: User) -> None:
+    """Remove o usuário. As mensagens vão junto, por cascata da FK."""
+    db.delete(user)
+    db.commit()
