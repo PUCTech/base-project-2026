@@ -1,0 +1,18 @@
+# ---- Framework web ----
+fastapi==0.121.2
+uvicorn[standard]==0.34.0
+
+# ---- Configuração e validação ----
+pydantic==2.13.5
+pydantic-settings==2.7.1
+
+# ---- Banco de dados ----
+SQLAlchemy==2.0.54
+psycopg2-binary==2.9.10
+
+# ---- Segurança ----
+# bcrypt direto, sem passlib: o passlib não recebe release desde 2020 e
+# quebra ao ler a versão do bcrypt >= 4.1. A API do bcrypt é pequena o
+# bastante para ser usada sem wrapper.
+bcrypt==4.2.1
+pyjwt==2.10.1

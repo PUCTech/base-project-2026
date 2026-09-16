@@ -1,0 +1,20 @@
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort — ordem dos imports
+    "B",    # bugbear — armadilhas comuns
+    "UP",   # pyupgrade — sintaxe moderna
+    "S",    # bandit — problemas de segurança
+]
+ignore = [
+    "E501",  # comprimento de linha: o formatter já cuida
+    "B008",  # Depends() no default é o idioma do FastAPI
+]
+
+[lint.per-file-ignores]
+# Testes usam `assert` (S101) e senhas fixas de teste (S105/S106) por natureza.
+"tests/*" = ["S101", "S105", "S106"]
