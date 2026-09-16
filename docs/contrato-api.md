@@ -14,7 +14,7 @@ Definido **antes** da implementação (contract-first). A coleção Postman em
 |---|---|:---:|:---:|---|
 | `GET` | `/health` | — | 2 | Liveness check |
 | `POST` | `/auth/register` | — | 2 | Cadastra um usuário |
-| `POST` | `/auth/login` | — | 2 → 3 | Autentica; devolve o JWT a partir da Fase 3 |
+| `POST` | `/auth/login` | — | 3 | Autentica e devolve o JWT |
 | `GET` | `/auth/me` | ✅ | 3 | Dados do usuário autenticado |
 | `PATCH` | `/users/me` | ✅ | 3 | Atualiza username e/ou senha |
 | `DELETE` | `/users/me` | ✅ | 3 | Remove a própria conta |
@@ -71,7 +71,7 @@ A resposta **nunca** inclui `password` nem `password_hash`.
 { "username": "leonardo", "password": "senha-secreta-123" }
 ```
 
-**200 OK** (forma final, a partir da Fase 3)
+**200 OK**
 ```json
 {
   "access_token": "eyJhbGciOiJIUzI1NiIs...",
@@ -80,10 +80,14 @@ A resposta **nunca** inclui `password` nem `password_hash`.
 }
 ```
 
-> **Estado na Fase 2:** a rota existe e confere as credenciais, mas responde o
-> próprio usuário (mesmo formato de `GET /auth/me`) em vez do token. A entrega da
-> Fase 2 é provar que a verificação de senha contra o hash funciona; a Fase 3
-> acrescenta a camada de sessão. O `401` de credencial inválida já é o final.
+O token é **assinado, não criptografado**: qualquer pessoa consegue ler o payload, que é
+apenas base64. Por isso ele carrega só o id do usuário e os prazos (`sub`, `iat`, `exp`) —
+nada sensível. O que a assinatura garante não é sigilo, é que ninguém alterou o conteúdo.
+
+Não há rota de logout: a sessão não tem estado no servidor, então um token emitido vale até
+`exp`. Sair, na prática, é o cliente descartar o token. Revogação de verdade exigiria uma
+lista de tokens invalidados no servidor — o que reintroduz o estado que o JWT existe para
+evitar, e está fora do escopo deste projeto.
 
 | Erro | Quando |
 |---|---|
@@ -104,7 +108,7 @@ A resposta **nunca** inclui `password` nem `password_hash`.
 
 | Erro | Quando |
 |---|---|
-| `401 Unauthorized` | token ausente, malformado, expirado ou com assinatura inválida |
+| `401 Unauthorized` | token ausente, malformado, expirado, com assinatura inválida, ou conta já removida |
 
 ---
 
