@@ -1,0 +1,65 @@
+# Sobe o ambiente inteiro com um comando:
+#
+#   cp .env.example .env    # preencha os valores
+#   docker compose up --build
+#
+# Nenhum valor sensível está neste arquivo. Tudo vem do .env, que está no
+# .gitignore — por isso o compose pode ser versionado sem risco.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: chatia-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      # Volume nomeado: os dados sobrevivem a `docker compose down`.
+      # Para zerar o banco de propósito: `docker compose down -v`.
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      # Exposto só para inspecionar o banco da máquina (psql, DBeaver).
+      # A porta 5433 no host evita conflito com um Postgres instalado localmente.
+      - "5433:5432"
+    healthcheck:
+      # O backend espera este healthcheck passar antes de subir. Sem isso, ele
+      # tentaria conectar enquanto o Postgres ainda está inicializando e
+      # morreria no boot — o clássico "funciona no segundo `up`".
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: chatia-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Dentro da rede do compose o host do banco é o nome do serviço: "db",
+      # e a porta é a interna (5432), não a mapeada no host.
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  postgres-data:
