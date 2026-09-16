@@ -1,0 +1,23 @@
+# Quanto menor o contexto enviado ao daemon, mais rápido o build — e menor o
+# risco de um arquivo local acabar dentro da imagem.
+
+# Segredos: um .env copiado para a imagem vaza junto com ela.
+.env
+.env.*
+!.env.example
+
+# Ambiente virtual local: tem binários compilados para o macOS/host,
+# inúteis (e quebrados) dentro de uma imagem Linux.
+.venv/
+venv/
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+tests/
+README.md
