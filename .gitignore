@@ -1,0 +1,43 @@
+# ---- Segredos (NUNCA commitar) ----
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ---- Python / Backend ----
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# ---- Node / Frontend ----
+node_modules/
+.next/
+out/
+.turbo/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ---- Banco local / Docker ----
+postgres-data/
+*.sqlite3
+*.db
+
+# ---- Sistema operacional / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
