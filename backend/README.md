@@ -94,3 +94,30 @@ token está no primeiro caso. Foi um teste que pegou essa divergência do contra
 **O algoritmo do JWT é passado como lista fechada na validação.** Aceitar o algoritmo que o
 próprio token declara é a falha clássica do JWT: o atacante troca o header para `alg: none`
 e passa a assinar tokens sozinho.
+
+## Docker
+
+A imagem é construída em dois estágios. O primeiro compila as dependências em wheels; o
+segundo só as instala. Assim o compilador e os headers de build não chegam à imagem final —
+e o que não está na imagem não precisa ser corrigido quando aparece uma CVE.
+
+O `COPY requirements.txt` acontece **antes** do `COPY app`. É isso que faz o cache do Docker
+funcionar: enquanto as dependências não mudam, a camada de `pip install` é reaproveitada e
+nenhuma reinstalação roda a cada alteração no código.
+
+O container roda como `appuser` (uid 1000), não como root. O padrão do Docker é root, e um
+processo exposto à internet rodando como root transforma qualquer execução remota de código
+em controle total do container.
+
+```bash
+docker exec chatia-backend id
+# uid=1000(appuser) gid=1000(appuser) groups=1000(appuser)
+```
+
+Nenhum segredo entra na imagem: o `.dockerignore` barra o `.env`, e as variáveis chegam em
+tempo de execução pelo compose. Dá para auditar:
+
+```bash
+docker image inspect puctech-backend --format '{{range .Config.Env}}{{println .}}{{end}}'
+docker history puctech-backend --no-trunc --format '{{.CreatedBy}}' | grep -i secret
+```
