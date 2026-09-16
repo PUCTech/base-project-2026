@@ -1,0 +1,340 @@
+{
+  "info": {
+    "_postman_id": "b7f1c2a4-3d55-4e10-9a6b-0f2c8d1e4a90",
+    "name": "Chat com IA — API",
+    "description": "Contrato executável da API definido na Fase 1 (contract-first).\n\nAs rotas foram escritas ANTES da implementação: rodar a coleção agora falha, e é isso que se espera. A cada fase concluída, mais requisições passam a responder como documentado.\n\nUso:\n1. Importe o environment `chat-ia.postman_environment.json`.\n2. Rode `Auth / Login` — o token é salvo automaticamente na variável `access_token`.\n3. As rotas protegidas herdam esse token via Bearer no nível da coleção.\n\nNenhum segredo real é versionado aqui: senha e URL vêm do environment.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{access_token}}", "type": "string" }]
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8000", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('responde status ok', () => {",
+                  "    pm.expect(pm.response.json().status).to.eql('ok');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] },
+            "description": "Liveness check. Sem autenticação. Fase 2."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "POST /auth/register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 201 (ou 409 se já cadastrado)', () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([201, 409]);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('devolve id e username', () => {",
+                  "        pm.expect(body).to.have.property('id');",
+                  "        pm.expect(body.username).to.eql(pm.environment.get('username'));",
+                  "    });",
+                  "    pm.test('NUNCA devolve senha nem hash', () => {",
+                  "        pm.expect(body).to.not.have.property('password');",
+                  "        pm.expect(body).to.not.have.property('password_hash');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/register", "host": ["{{baseUrl}}"], "path": ["auth", "register"] },
+            "description": "Cadastra um usuário. 201 Created. 409 se o username já existe. Fase 2."
+          }
+        },
+        {
+          "name": "POST /auth/login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('devolve access_token bearer', () => {",
+                  "    pm.expect(body.access_token).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.token_type).to.eql('bearer');",
+                  "});",
+                  "",
+                  "// Salva o token para as demais requisições da coleção.",
+                  "pm.environment.set('access_token', body.access_token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"{{password}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "Autentica e devolve o JWT. O script de teste salva o token em {{access_token}}. Fase 2/3."
+          }
+        },
+        {
+          "name": "POST /auth/login — senha errada",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('não revela se o usuário existe', () => {",
+                  "    const detail = pm.response.json().detail.toLowerCase();",
+                  "    pm.expect(detail).to.include('inválidos');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"{{username}}\",\n    \"password\": \"senha-propositalmente-errada\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/auth/login", "host": ["{{baseUrl}}"], "path": ["auth", "login"] },
+            "description": "Caso negativo. A mensagem é a mesma de 'usuário inexistente', de propósito: mensagens distintas permitiriam enumerar contas válidas."
+          }
+        },
+        {
+          "name": "GET /auth/me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('devolve o usuário do token', () => {",
+                  "    pm.expect(pm.response.json().username).to.eql(pm.environment.get('username'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] },
+            "description": "Dados do usuário autenticado. Requer Bearer token. Fase 3."
+          }
+        },
+        {
+          "name": "GET /auth/me — sem token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status 401', () => pm.response.to.have.status(401));"]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/auth/me", "host": ["{{baseUrl}}"], "path": ["auth", "me"] },
+            "description": "Caso negativo: rota protegida sem Authorization deve responder 401."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "PATCH /users/me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('NUNCA devolve hash de senha', () => {",
+                  "    pm.expect(pm.response.json()).to.not.have.property('password_hash');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"password\": \"nova-senha-super-secreta\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] },
+            "description": "Atualização parcial do próprio usuário. Envie só os campos que mudam. Fase 3.\n\nATENÇÃO: trocar a senha aqui invalida a variável {{password}} do environment."
+          }
+        },
+        {
+          "name": "DELETE /users/me",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 204', () => pm.response.to.have.status(204));",
+                  "pm.test('sem corpo', () => pm.expect(pm.response.text()).to.be.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] },
+            "description": "Remove a própria conta e, por cascata, todas as mensagens. Fase 3.\n\nDestrutivo: não faz parte do fluxo feliz da coleção."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        {
+          "name": "POST /chat",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('devolve uma resposta não vazia', () => {",
+                  "    pm.expect(body.reply).to.be.a('string').and.not.empty;",
+                  "});",
+                  "pm.test('devolve created_at', () => {",
+                  "    pm.expect(body).to.have.property('created_at');",
+                  "});",
+                  "pm.test('não vaza a chave do provedor', () => {",
+                  "    pm.expect(pm.response.text()).to.not.match(/AIza[0-9A-Za-z_-]{30,}/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"message\": \"Explique o que é um cold start em uma frase.\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/chat", "host": ["{{baseUrl}}"], "path": ["chat"] },
+            "description": "Envia a pergunta ao LLM e devolve a resposta. Grava pergunta e resposta em `messages`. Fase 6.\n\nA chave da Gemini vive só no backend — esta requisição nunca a carrega."
+          }
+        },
+        {
+          "name": "POST /chat — mensagem vazia",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('status 422', () => pm.response.to.have.status(422));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n    \"message\": \"   \"\n}" },
+            "url": { "raw": "{{baseUrl}}/chat", "host": ["{{baseUrl}}"], "path": ["chat"] },
+            "description": "Caso negativo: só espaço em branco deve ser rejeitado pelo Pydantic com 422, sem chegar ao LLM."
+          }
+        },
+        {
+          "name": "GET /chat/history",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const msgs = pm.response.json().messages;",
+                  "pm.test('devolve uma lista de mensagens', () => {",
+                  "    pm.expect(msgs).to.be.an('array');",
+                  "});",
+                  "pm.test('todo papel é user ou assistant', () => {",
+                  "    msgs.forEach(m => pm.expect(m.role).to.be.oneOf(['user', 'assistant']));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/chat/history?limit=50",
+              "host": ["{{baseUrl}}"],
+              "path": ["chat", "history"],
+              "query": [{ "key": "limit", "value": "50" }]
+            },
+            "description": "Histórico do usuário autenticado. O user_id vem do JWT, nunca da query string — por isso não há como ler o histórico de outra conta. Fase 6."
+          }
+        }
+      ]
+    }
+  ]
+}
