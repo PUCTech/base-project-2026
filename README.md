@@ -110,7 +110,7 @@ leva esse prefixo é embutido no bundle e fica legível no navegador.
 | 2 | Backend core | ✅ |
 | 3 | Autenticação e testes | ✅ |
 | 4 | Dockerização | ✅ |
-| 5 | Frontend | ⬜ |
+| 5 | Frontend | ✅ |
 | 6 | Integração com o LLM | ⬜ |
 | 7 | CI/CD e Deploy | ⬜ |
 | 8 | Revisão final | ⬜ |
