@@ -93,8 +93,8 @@ leva esse prefixo é embutido no bundle e fica legível no navegador.
 | # | Fase | Status |
 |:-:|---|:-:|
 | 1 | Setup e contrato de API | ✅ |
-| 2 | Backend core | ⬜ |
-| 3 | Autenticação e testes | ⬜ |
+| 2 | Backend core | ✅ |
+| 3 | Autenticação e testes | ✅ |
 | 4 | Dockerização | ⬜ |
 | 5 | Frontend | ⬜ |
 | 6 | Integração com o LLM | ⬜ |

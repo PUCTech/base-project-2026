@@ -37,13 +37,14 @@ export JWT_SECRET_KEY="$(openssl rand -hex 32)"
 
 ```
 app/
-├── main.py        # aplicação, CORS, registro dos routers
-├── config.py      # variáveis de ambiente validadas com pydantic-settings
-├── database.py    # engine, sessão e Base do SQLAlchemy
-├── routers/       # camada HTTP: rotas e status codes
-├── schemas/       # Pydantic: validação da entrada e forma da saída
-├── models/        # SQLAlchemy: tabelas e relacionamentos
-└── services/      # regra de negócio: hash, sessão, LLM
+├── main.py          # aplicação, CORS, registro dos routers
+├── config.py        # variáveis de ambiente validadas com pydantic-settings
+├── database.py      # engine, sessão e Base do SQLAlchemy
+├── dependencies.py  # get_current_user: resolve o usuário a partir do token
+├── routers/         # camada HTTP: rotas e status codes
+├── schemas/         # Pydantic: validação da entrada e forma da saída
+├── models/          # SQLAlchemy: tabelas e relacionamentos
+└── services/        # regra de negócio: hash, sessão, LLM
 ```
 
 A dependência aponta numa direção só: `routers` → `services` → `models`. Um módulo de
@@ -71,3 +72,25 @@ descobrir quais contas existem — mesmo com as duas respondendo o mesmo `401`.
 compilada junto, o que é ótimo para desenvolvimento e CI. O pacote `psycopg2` (sem
 `-binary`) compila contra a libpq do sistema e é o recomendado pelos mantenedores para
 produção.
+
+**Os testes rodam em SQLite, não em PostgreSQL.** Cada teste ganha um banco em memória
+criado e destruído na hora, então nenhum teste enxerga o que outro escreveu e não existe
+ordem de execução que faça a suíte passar ou falhar. O custo é honesto: SQLite não cobre o
+que é específico do Postgres. Os testes exercitam regra de negócio e contrato HTTP; o
+comportamento no banco real é verificado pela coleção Postman contra o ambiente do
+docker-compose.
+
+**`conftest.py` monta a aplicação em vez de importar `app.main.app`.** O `lifespan` de lá
+roda `create_all` contra o PostgreSQL configurado no ambiente — um teste não deve tocar nele.
+
+**`app/main.py` aparece com 0% de cobertura** justamente por isso. Não é código sem teste:
+é código que os testes deliberadamente não importam.
+
+**`HTTPBearer` é usado com `auto_error=False`.** Com o padrão `True`, o FastAPI responde
+`403` quando o header `Authorization` falta — e `403` é a resposta errada: pela RFC 7235,
+`401` é "não sei quem você é" e `403` é "sei quem você é, e você não pode". Quem chega sem
+token está no primeiro caso. Foi um teste que pegou essa divergência do contrato.
+
+**O algoritmo do JWT é passado como lista fechada na validação.** Aceitar o algoritmo que o
+próprio token declara é a falha clássica do JWT: o atacante troca o header para `alg: none`
+e passa a assinar tokens sozinho.
