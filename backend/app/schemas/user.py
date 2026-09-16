@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 USERNAME_PATTERN = r"^[a-zA-Z0-9_.-]+$"
 
@@ -39,3 +39,21 @@ class UserRead(BaseModel):
     id: int
     username: str
     created_at: datetime
+
+
+class UserUpdate(BaseModel):
+    """Corpo de PATCH /users/me — atualização parcial.
+
+    Ambos os campos são opcionais, mas o corpo não pode vir vazio: um PATCH sem
+    nenhum campo é quase sempre um erro do cliente, e responder 200 sem ter
+    mudado nada esconde esse erro em vez de denunciá-lo.
+    """
+
+    username: str | None = Field(default=None, min_length=3, max_length=50, pattern=USERNAME_PATTERN)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def _require_at_least_one_field(self) -> "UserUpdate":
+        if self.username is None and self.password is None:
+            raise ValueError("Informe ao menos um campo para atualizar.")
+        return self
