@@ -10,6 +10,11 @@ pydantic-settings==2.7.1
 SQLAlchemy==2.0.54
 psycopg2-binary==2.9.10
 
+# ---- Cliente HTTP (chamada ao LLM) ----
+# httpx e não requests: dá timeout granular (connect/read/write) e é o
+# cliente que o próprio TestClient do FastAPI já usa.
+httpx==0.28.1
+
 # ---- Segurança ----
 # bcrypt direto, sem passlib: o passlib não recebe release desde 2020 e
 # quebra ao ler a versão do bcrypt >= 4.1. A API do bcrypt é pequena o
