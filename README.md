@@ -51,19 +51,33 @@ repositório. Detalhes, camadas e o fluxo de uma requisição em
 
 ## Como rodar
 
-> Em construção — a partir da Fase 4 um único `docker compose up` sobe o ambiente inteiro.
-
 ```bash
 git clone git@github.com:PUCTech/base-project-2026.git
 cd base-project-2026
 cp .env.example .env    # preencha os valores; .env nunca é commitado
+
+docker compose up --build
 ```
+
+- API: <http://localhost:8000> · Swagger UI: <http://localhost:8000/docs>
+- Banco: `localhost:5433` (para inspecionar com psql ou DBeaver)
 
 Gere um segredo forte para o JWT e cole em `JWT_SECRET_KEY`:
 
 ```bash
 openssl rand -hex 32
 ```
+
+| Comando | Efeito |
+|---|---|
+| `docker compose up --build` | Sobe banco e API; reconstrói a imagem |
+| `docker compose logs -f backend` | Acompanha os logs da API |
+| `docker compose down` | Derruba tudo, **mantendo** os dados |
+| `docker compose down -v` | Derruba tudo e **apaga** o banco |
+
+O backend só inicia depois que o healthcheck do Postgres passa. Sem essa espera, ele
+tentaria conectar enquanto o banco ainda está inicializando e morreria no boot — o clássico
+"funciona no segundo `up`".
 
 A chave da Gemini sai de [Google AI Studio](https://aistudio.google.com/apikey) e vai em
 `GEMINI_API_KEY` — **no `.env` do backend**, nunca numa variável `NEXT_PUBLIC_*`: tudo que
@@ -95,7 +109,7 @@ leva esse prefixo é embutido no bundle e fica legível no navegador.
 | 1 | Setup e contrato de API | ✅ |
 | 2 | Backend core | ✅ |
 | 3 | Autenticação e testes | ✅ |
-| 4 | Dockerização | ⬜ |
+| 4 | Dockerização | ✅ |
 | 5 | Frontend | ⬜ |
 | 6 | Integração com o LLM | ⬜ |
 | 7 | CI/CD e Deploy | ⬜ |
