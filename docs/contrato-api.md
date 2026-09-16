@@ -163,11 +163,20 @@ associadas ao usuário do token.
 
 | Erro | Quando |
 |---|---|
+| `400 Bad Request` | a pergunta foi recusada pelo filtro de conteúdo do provedor |
 | `401 Unauthorized` | token inválido |
-| `422 Unprocessable Entity` | mensagem vazia ou acima de 4000 caracteres |
+| `422 Unprocessable Entity` | mensagem vazia, só espaços, ou acima de 4000 caracteres |
 | `429 Too Many Requests` | rate limit por usuário excedido (Fase 8) |
 | `502 Bad Gateway` | o provedor do LLM falhou ou respondeu fora do contrato |
+| `503 Service Unavailable` | `GEMINI_API_KEY` não está configurada no servidor |
 | `504 Gateway Timeout` | o provedor do LLM não respondeu no tempo limite |
+
+O corpo de erro do provedor **nunca** é repassado ao cliente: ele vai para o log do servidor,
+e a resposta HTTP traz uma mensagem genérica. Mensagens de erro de provedor costumam carregar
+detalhes de infraestrutura — e, no pior caso, fragmentos da própria credencial.
+
+Nada é gravado em `messages` quando a chamada ao LLM falha. Gravar a pergunta antes de ter a
+resposta encheria o histórico de perguntas órfãs a cada falha do provedor.
 
 > A chave da Gemini API vive só no backend, em variável de ambiente. O frontend chama
 > `POST /chat` e não tem como alcançar o provedor diretamente.

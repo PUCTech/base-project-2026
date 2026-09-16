@@ -70,12 +70,12 @@ sequenceDiagram
     N->>F: POST /chat  { message }  + Bearer JWT
     F->>F: valida JWT → user_id
     F->>F: valida corpo com Pydantic
-    F->>P: INSERT messages (user_id, 'user', message)
-    F->>G: generateContent  (API key do ambiente)
+    F->>G: generateContent  (API key no header x-goog-api-key)
     G-->>F: texto da resposta
-    F->>P: INSERT messages (user_id, 'assistant', reply)
+    F->>P: INSERT messages ('user', message) + ('assistant', reply)
     F-->>N: 200  { reply, created_at }
 
+    Note over F,P: A gravação vem depois da resposta:<br/>falha do provedor não deixa pergunta órfã.
     Note over N,G: O navegador nunca vê a API key<br/>nem a string de conexão do banco.
 ```
 
