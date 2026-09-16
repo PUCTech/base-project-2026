@@ -9,7 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.dependencies import get_current_user
+from app.models import User
+from app.schemas.token import Token
 from app.schemas.user import UserCreate, UserLogin, UserRead
+from app.services.tokens import create_access_token
 from app.services.users import (
     UsernameAlreadyExistsError,
     authenticate_user,
@@ -45,16 +49,10 @@ def register(data: UserCreate, db: Session = Depends(get_db)) -> UserRead:
 
 @router.post(
     "/login",
-    response_model=UserRead,
-    summary="Autentica um usuário",
+    response_model=Token,
+    summary="Autentica e devolve o token de acesso",
 )
-def login(data: UserLogin, db: Session = Depends(get_db)) -> UserRead:
-    """Confere as credenciais.
-
-    Nesta fase a resposta é o próprio usuário: a entrega aqui é provar que a
-    verificação de senha contra o hash funciona. A Fase 3 troca o retorno por um
-    JWT, que é o que de fato carrega a sessão entre requisições.
-    """
+def login(data: UserLogin, db: Session = Depends(get_db)) -> Token:
     user = authenticate_user(db, data.username, data.password)
     if user is None:
         raise HTTPException(
@@ -63,4 +61,15 @@ def login(data: UserLogin, db: Session = Depends(get_db)) -> UserRead:
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return user
+    access_token, expires_in = create_access_token(user.id)
+    return Token(access_token=access_token, expires_in=expires_in)
+
+
+@router.get(
+    "/me",
+    response_model=UserRead,
+    summary="Dados do usuário autenticado",
+)
+def read_me(current_user: User = Depends(get_current_user)) -> UserRead:
+    """O usuário sai do token — o cliente não escolhe de quem são os dados."""
+    return current_user
