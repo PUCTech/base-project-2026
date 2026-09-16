@@ -15,12 +15,12 @@ from collections.abc import Generator
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.routers import auth, users
+from app.routers import auth, chat, users
 
 USERNAME = "usuario.teste"
 PASSWORD = "senha-de-teste-123"
@@ -36,6 +36,18 @@ def db() -> Generator[Session, None, None]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    # O SQLite ignora foreign keys a menos que isso seja ligado por conexão.
+    #
+    # Sem este PRAGMA, o ON DELETE CASCADE de messages.user_id simplesmente não
+    # acontece nos testes — e um teste de cascata passaria no PostgreSQL e
+    # falharia aqui, ou pior, o contrário: o teste passaria sem cascata alguma
+    # e a diferença só apareceria em produção.
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
     Base.metadata.create_all(bind=engine)
     session = sessionmaker(bind=engine, autocommit=False, autoflush=False)()
     try:
@@ -56,6 +68,7 @@ def client(db: Session) -> Generator[TestClient, None, None]:
     app = FastAPI()
     app.include_router(auth.router)
     app.include_router(users.router)
+    app.include_router(chat.router)
 
     # Substitui a sessão real pela de teste em todas as rotas de uma vez.
     app.dependency_overrides[get_db] = lambda: db
