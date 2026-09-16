@@ -1,9 +1,9 @@
 -r requirements.txt
 
 # ---- Testes ----
+# httpx já vem de requirements.txt; o TestClient do FastAPI depende dele.
 pytest==8.3.4
 pytest-cov==6.0.0
-httpx==0.28.1
 
 # ---- Lint e formatação ----
 ruff==0.9.4
