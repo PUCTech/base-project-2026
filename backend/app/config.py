@@ -34,7 +34,11 @@ class Settings(BaseSettings):
 
     # ---- LLM (usado a partir da Fase 6) ----
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    # Nomes de modelo do Gemini expiram: o provedor responde 404 com "is no
+    # longer available" e indica o substituto na própria mensagem. Por isso o
+    # modelo é configurável por ambiente — trocá-lo não deve exigir deploy de
+    # código novo.
+    gemini_model: str = "gemini-3.6-flash"
 
     # ---- CORS ----
     cors_origins: str = "http://localhost:3000"
