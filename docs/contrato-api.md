@@ -171,6 +171,10 @@ associadas ao usuário do token.
 | `503 Service Unavailable` | `GEMINI_API_KEY` não está configurada no servidor |
 | `504 Gateway Timeout` | o provedor do LLM não respondeu no tempo limite |
 
+Antes de devolver `502`, o backend tenta até 3 vezes em `429`, `500` e `503` — o provedor
+devolve `503 "high demand"` com frequência no plano gratuito e a própria mensagem pede nova
+tentativa. Timeout e erros permanentes (`400`, `401`, `403`, `404`) não são retentados.
+
 O corpo de erro do provedor **nunca** é repassado ao cliente: ele vai para o log do servidor,
 e a resposta HTTP traz uma mensagem genérica. Mensagens de erro de provedor costumam carregar
 detalhes de infraestrutura — e, no pior caso, fragmentos da própria credencial.
