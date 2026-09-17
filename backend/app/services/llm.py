@@ -9,6 +9,8 @@ resposta HTTP.
 """
 
 import logging
+import random
+import time
 
 import httpx
 
@@ -24,6 +26,22 @@ BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 # generoso deixaria uma rede fora do ar pendurada pelo mesmo tempo que uma
 # resposta longa e legítima.
 TIMEOUT = httpx.Timeout(connect=10.0, read=60.0, write=10.0, pool=10.0)
+
+# Status que o provedor devolve para congestionamento temporário. A própria
+# mensagem do Gemini nesses casos diz "spikes in demand are usually temporary,
+# please try again later" — ou seja, insistir é o comportamento pedido, não uma
+# gambiarra. No plano gratuito eles aparecem com frequência.
+RETRYABLE_STATUS = {429, 500, 503}
+
+# Três tentativas, não mais: cada rodada extra atrasa a resposta de quem está
+# esperando, e um provedor fora do ar não melhora na décima tentativa.
+MAX_ATTEMPTS = 3
+
+# Espera entre tentativas, dobrando a cada rodada. O jitter evita que vários
+# usuários que falharam juntos voltem todos no mesmo instante e recriem o pico
+# de demanda que causou o erro.
+BACKOFF_BASE_SECONDS = 1.0
+MAX_RETRY_AFTER_SECONDS = 10.0
 
 
 class LLMNotConfiguredError(Exception):
@@ -52,34 +70,71 @@ def ask_llm(question: str) -> str:
     url = f"{BASE_URL}/models/{settings.gemini_model}:generateContent"
     payload = {"contents": [{"parts": [{"text": question}]}]}
 
-    try:
-        with httpx.Client(timeout=TIMEOUT) as client:
-            response = client.post(
-                url,
-                json=payload,
-                # A chave vai no header, não em `?key=`. Query string aparece em
-                # log de servidor, de proxy e no header Referer — é o jeito mais
-                # fácil de vazar uma credencial sem perceber.
-                headers={"x-goog-api-key": settings.gemini_api_key},
+    with httpx.Client(timeout=TIMEOUT) as client:
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                response = client.post(
+                    url,
+                    json=payload,
+                    # A chave vai no header, não em `?key=`. Query string
+                    # aparece em log de servidor, de proxy e no header Referer —
+                    # é o jeito mais fácil de vazar uma credencial sem perceber.
+                    headers={"x-goog-api-key": settings.gemini_api_key},
+                )
+            except httpx.TimeoutException as exc:
+                # Timeout não é retentado: o read timeout já é de 60s, e uma
+                # segunda espera dessas estouraria o tempo que o navegador
+                # aguarda — o usuário veria a aba travada em vez de um erro.
+                raise LLMTimeoutError(str(exc)) from exc
+            except httpx.HTTPError as exc:
+                # str(exc) do httpx inclui a URL, mas nunca os headers — a chave
+                # não aparece aqui. Ainda assim fica só no log do servidor.
+                logger.warning("Falha de rede ao chamar o provedor de LLM: %s", exc)
+                raise LLMUnavailableError(str(exc)) from exc
+
+            if response.status_code == httpx.codes.OK:
+                return _extract_text(response.json())
+
+            # O corpo de erro do provedor vai para o log, não para a resposta
+            # HTTP: ele pode conter detalhes de infraestrutura que não
+            # interessam — nem convém expor — a quem está usando o chat.
+            logger.warning(
+                "Provedor de LLM respondeu %s (tentativa %s/%s): %s",
+                response.status_code,
+                attempt,
+                MAX_ATTEMPTS,
+                response.text[:500],
             )
-    except httpx.TimeoutException as exc:
-        raise LLMTimeoutError(str(exc)) from exc
-    except httpx.HTTPError as exc:
-        # str(exc) do httpx inclui a URL, mas nunca os headers — a chave não
-        # aparece aqui. Ainda assim a mensagem fica só no log do servidor.
-        logger.warning("Falha de rede ao chamar o provedor de LLM: %s", exc)
-        raise LLMUnavailableError(str(exc)) from exc
 
-    if response.status_code != httpx.codes.OK:
-        # O corpo de erro do provedor vai para o log, não para a resposta HTTP:
-        # ele pode conter detalhes de infraestrutura que não interessam — nem
-        # convém expor — a quem está usando o chat.
-        logger.warning(
-            "Provedor de LLM respondeu %s: %s", response.status_code, response.text[:500]
-        )
-        raise LLMUnavailableError(f"Provedor respondeu {response.status_code}.")
+            if response.status_code not in RETRYABLE_STATUS or attempt == MAX_ATTEMPTS:
+                raise LLMUnavailableError(f"Provedor respondeu {response.status_code}.")
 
-    return _extract_text(response.json())
+            time.sleep(_backoff_seconds(attempt, response))
+
+    # Inalcançável: o laço ou retorna, ou levanta.
+    raise LLMUnavailableError("O provedor não respondeu.")
+
+
+def _backoff_seconds(attempt: int, response: httpx.Response) -> float:
+    """Quanto esperar antes da próxima tentativa.
+
+    Se o provedor disser explicitamente quanto esperar (`Retry-After`), essa
+    informação vale mais que qualquer fórmula nossa — mas com um teto, para que
+    um cabeçalho absurdo não prenda a requisição por minutos.
+    """
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        try:
+            return min(float(retry_after), MAX_RETRY_AFTER_SECONDS)
+        except ValueError:
+            # Retry-After também pode vir como data HTTP; nesse caso ignoramos
+            # e caímos no backoff exponencial.
+            pass
+
+    espera = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+    # O jitter evita que vários usuários que falharam juntos voltem no mesmo
+    # instante e recriem o pico de demanda que causou o erro.
+    return espera + random.uniform(0, 0.3)  # noqa: S311 — jitter, não criptografia
 
 
 def _extract_text(body: dict) -> str:
