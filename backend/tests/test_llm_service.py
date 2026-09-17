@@ -160,3 +160,142 @@ def test_partes_multiplas_sao_concatenadas(monkeypatch):
         ),
     )
     assert ask_llm("Olá?") == "Parte 1. Parte 2."
+
+
+class TestRetentativa:
+    """O provedor devolve 503 'high demand' com frequência no plano gratuito, e
+    a própria mensagem pede para tentar de novo. Estes testes fixam quantas
+    vezes insistimos e quando desistimos."""
+
+    @pytest.fixture(autouse=True)
+    def sem_espera_real(self, monkeypatch):
+        """Neutraliza o backoff: o teste verifica a lógica, não o relógio."""
+        monkeypatch.setattr(llm.time, "sleep", lambda segundos: None)
+
+    def test_503_seguido_de_sucesso_devolve_a_resposta(self, monkeypatch):
+        tentativas = []
+
+        def handler(request):
+            tentativas.append(1)
+            if len(tentativas) == 1:
+                return httpx.Response(503, json={"error": "high demand"})
+            return httpx.Response(200, json=RESPOSTA_OK)
+
+        usar_transporte(monkeypatch, handler)
+
+        assert ask_llm("Olá?") == "Uma resposta do modelo."
+        assert len(tentativas) == 2
+
+    def test_desiste_apos_o_limite_de_tentativas(self, monkeypatch):
+        tentativas = []
+
+        def handler(request):
+            tentativas.append(1)
+            return httpx.Response(503, json={"error": "high demand"})
+
+        usar_transporte(monkeypatch, handler)
+
+        with pytest.raises(LLMUnavailableError):
+            ask_llm("Olá?")
+        assert len(tentativas) == llm.MAX_ATTEMPTS
+
+    @pytest.mark.parametrize("status_code", sorted(llm.RETRYABLE_STATUS))
+    def test_status_temporarios_sao_retentados(self, monkeypatch, status_code):
+        tentativas = []
+
+        def handler(request):
+            tentativas.append(1)
+            return httpx.Response(status_code, json={"error": "x"})
+
+        usar_transporte(monkeypatch, handler)
+
+        with pytest.raises(LLMUnavailableError):
+            ask_llm("Olá?")
+        assert len(tentativas) == llm.MAX_ATTEMPTS
+
+    @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
+    def test_erro_permanente_nao_e_retentado(self, monkeypatch, status_code):
+        """Chave inválida ou modelo inexistente não melhoram na segunda
+        tentativa — insistir só atrasaria a resposta de erro."""
+        tentativas = []
+
+        def handler(request):
+            tentativas.append(1)
+            return httpx.Response(status_code, json={"error": "x"})
+
+        usar_transporte(monkeypatch, handler)
+
+        with pytest.raises(LLMUnavailableError):
+            ask_llm("Olá?")
+        assert len(tentativas) == 1
+
+    def test_timeout_nao_e_retentado(self, monkeypatch):
+        """O read timeout já é de 60s; uma segunda espera estouraria o tempo que
+        o navegador aguarda, e o usuário veria a aba travada em vez de um erro."""
+        tentativas = []
+
+        def handler(request):
+            tentativas.append(1)
+            raise httpx.ReadTimeout("demorou", request=request)
+
+        usar_transporte(monkeypatch, handler)
+
+        with pytest.raises(LLMTimeoutError):
+            ask_llm("Olá?")
+        assert len(tentativas) == 1
+
+    def test_respeita_o_retry_after_do_provedor(self, monkeypatch):
+        esperas = []
+        monkeypatch.setattr(llm.time, "sleep", lambda s: esperas.append(s))
+
+        usar_transporte(
+            monkeypatch,
+            lambda request: httpx.Response(503, headers={"Retry-After": "2"}, json={}),
+        )
+
+        with pytest.raises(LLMUnavailableError):
+            ask_llm("Olá?")
+        assert esperas == [2.0, 2.0]
+
+    def test_retry_after_absurdo_e_limitado(self, monkeypatch):
+        """Um cabeçalho de uma hora não pode prender a requisição."""
+        esperas = []
+        monkeypatch.setattr(llm.time, "sleep", lambda s: esperas.append(s))
+
+        usar_transporte(
+            monkeypatch,
+            lambda request: httpx.Response(503, headers={"Retry-After": "3600"}, json={}),
+        )
+
+        with pytest.raises(LLMUnavailableError):
+            ask_llm("Olá?")
+        assert all(e <= llm.MAX_RETRY_AFTER_SECONDS for e in esperas)
+
+    def test_retry_after_em_formato_de_data_cai_no_backoff(self, monkeypatch):
+        """Retry-After também pode vir como data HTTP; nesse caso ignoramos."""
+        esperas = []
+        monkeypatch.setattr(llm.time, "sleep", lambda s: esperas.append(s))
+
+        usar_transporte(
+            monkeypatch,
+            lambda request: httpx.Response(
+                503, headers={"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}, json={}
+            ),
+        )
+
+        with pytest.raises(LLMUnavailableError):
+            ask_llm("Olá?")
+        # Backoff exponencial: a segunda espera é maior que a primeira.
+        assert len(esperas) == 2
+        assert esperas[1] > esperas[0]
+
+    def test_o_backoff_cresce_a_cada_tentativa(self, monkeypatch):
+        esperas = []
+        monkeypatch.setattr(llm.time, "sleep", lambda s: esperas.append(s))
+
+        usar_transporte(monkeypatch, lambda request: httpx.Response(503, json={}))
+
+        with pytest.raises(LLMUnavailableError):
+            ask_llm("Olá?")
+        assert esperas[0] >= llm.BACKOFF_BASE_SECONDS
+        assert esperas[1] >= llm.BACKOFF_BASE_SECONDS * 2
