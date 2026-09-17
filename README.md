@@ -62,6 +62,15 @@ docker compose up --build
 - API: <http://localhost:8000> · Swagger UI: <http://localhost:8000/docs>
 - Banco: `localhost:5433` (para inspecionar com psql ou DBeaver)
 
+Para o frontend, em outro terminal:
+
+```bash
+cd frontend
+npm install
+cp .env.local.example .env.local
+npm run dev      # http://localhost:3000
+```
+
 Gere um segredo forte para o JWT e cole em `JWT_SECRET_KEY`:
 
 ```bash
@@ -111,9 +120,9 @@ leva esse prefixo é embutido no bundle e fica legível no navegador.
 | 3 | Autenticação e testes | ✅ |
 | 4 | Dockerização | ✅ |
 | 5 | Frontend | ✅ |
-| 6 | Integração com o LLM | ⬜ |
-| 7 | CI/CD e Deploy | ⬜ |
-| 8 | Revisão final | ⬜ |
+| 6 | Integração com o LLM | ✅ |
+| 7 | CI/CD e Deploy | ⬜ adiada |
+| 8 | Revisão final | ⬜ adiada |
 
 ## Contribuindo
 

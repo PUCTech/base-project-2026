@@ -121,3 +121,52 @@ tempo de execução pelo compose. Dá para auditar:
 docker image inspect puctech-backend --format '{{range .Config.Env}}{{println .}}{{end}}'
 docker history puctech-backend --no-trunc --format '{{.CreatedBy}}' | grep -i secret
 ```
+
+## Nomes de modelo do Gemini expiram
+
+Este projeto nasceu apontando para `gemini-2.0-flash`. Na primeira chamada real, o provedor
+respondeu:
+
+```
+404: This model models/gemini-2.0-flash is no longer available.
+     Please update your code to use models/gemini-3.6-flash
+```
+
+Não é um caso raro — é o ciclo normal do provedor. Três consequências que já estão no código:
+
+1. **O modelo é configurável por ambiente** (`GEMINI_MODEL`). Trocá-lo não exige deploy de
+   código novo.
+2. **A mensagem de erro indica o substituto.** Quando o `POST /chat` devolver `502`, o motivo
+   real está no log do backend (`docker compose logs backend`), não na resposta HTTP — e é lá
+   que o provedor diz qual modelo usar.
+3. **A lista atual sai da própria API:**
+   ```bash
+   curl -H "x-goog-api-key: $GEMINI_API_KEY" \
+     https://generativelanguage.googleapis.com/v1beta/models
+   ```
+   Atenção: essa lista inclui modelos que a sua chave **não** pode usar. `gemini-2.5-flash`
+   aparece nela e responde `404 "no longer available to new users"`.
+
+Existe o alias `gemini-flash-latest`, que nunca expira. O custo é que a versão muda sob os
+seus pés — hoje ele resolve para `gemini-3.8-flash`, que durante os testes desta fase estava
+devolvendo `503 "high demand"`. Por isso o padrão aqui é uma versão fixa: previsível, ao
+preço de precisar ser atualizada de tempos em tempos.
+
+## Retentativa nas falhas temporárias
+
+O plano gratuito devolve `503 "This model is currently experiencing high demand. Spikes in
+demand are usually temporary. Please try again later."` com alguma frequência. A própria
+mensagem pede nova tentativa, então insistir é o comportamento pedido — não uma gambiarra.
+
+`ask_llm` tenta até 3 vezes em `429`, `500` e `503`, com espera dobrando a cada rodada
+(1 s, 2 s) mais um *jitter* aleatório. O jitter existe para que vários usuários que falharam
+juntos não voltem todos no mesmo instante, recriando o pico de demanda que causou o erro.
+Se o provedor mandar um `Retry-After`, ele vale mais que a fórmula — limitado a 10 s, para
+que um cabeçalho absurdo não prenda a requisição.
+
+O que **não** é retentado:
+
+- **Timeout.** O *read timeout* já é de 60 s; uma segunda espera dessas estouraria o tempo que
+  o navegador aguarda, e o usuário veria a aba travada em vez de um erro.
+- **`400`, `401`, `403`, `404`.** Chave inválida ou modelo inexistente não melhoram na segunda
+  tentativa — insistir só atrasaria a resposta de erro.
