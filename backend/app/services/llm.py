@@ -61,6 +61,19 @@ class LLMUnavailableError(Exception):
     """O provedor falhou ou respondeu fora do contrato."""
 
 
+class LLMRateLimitedError(LLMUnavailableError):
+    """A cota de uso do provedor acabou por ora (429).
+
+    Subclasse de LLMUnavailableError: quem só sabe tratar "indisponível"
+    continua funcionando, e quem quer dizer ao usuário quanto esperar captura
+    esta primeiro.
+    """
+
+    def __init__(self, retry_after: float | None = None):
+        super().__init__("Cota do provedor esgotada.")
+        self.retry_after = retry_after
+
+
 class ContentBlockedError(Exception):
     """O provedor recusou a pergunta por filtro de conteúdo."""
 
@@ -184,6 +197,14 @@ def _generate(payload: dict[str, Any]) -> dict[str, Any]:
                 response.text[:500],
             )
 
+            if response.status_code == httpx.codes.TOO_MANY_REQUESTS:
+                wait = _provider_retry_delay(response)
+                # Cota por minuto do plano gratuito: o provedor diz "tente em
+                # 20s". Esperar isso aqui dentro prenderia a requisição; melhor
+                # devolver logo e deixar a tela mostrar quanto falta.
+                if attempt == MAX_ATTEMPTS or (wait is not None and wait > MAX_RETRY_AFTER_SECONDS):
+                    raise LLMRateLimitedError(retry_after=wait)
+
             if response.status_code not in RETRYABLE_STATUS or attempt == MAX_ATTEMPTS:
                 raise LLMUnavailableError(f"Provedor respondeu {response.status_code}.")
 
@@ -209,10 +230,31 @@ def _backoff_seconds(attempt: int, response: httpx.Response) -> float:
             # e caímos no backoff exponencial.
             pass
 
+    provider_delay = _provider_retry_delay(response)
+    if provider_delay is not None:
+        return min(provider_delay, MAX_RETRY_AFTER_SECONDS)
+
     espera = BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
     # O jitter evita que vários usuários que falharam juntos voltem no mesmo
     # instante e recriem o pico de demanda que causou o erro.
     return espera + random.uniform(0, 0.3)  # noqa: S311 — jitter, não criptografia
+
+
+def _provider_retry_delay(response: httpx.Response) -> float | None:
+    """O tempo de espera que o Gemini informa no corpo de um 429.
+
+    O Gemini não usa o header Retry-After: a espera vem em
+    `error.details[].retryDelay` ("20s"), num item do tipo RetryInfo. Qualquer
+    coisa fora desse formato vira None, e quem chamou segue sem a informação.
+    """
+    try:
+        details = response.json()["error"]["details"]
+        for detail in details:
+            if str(detail.get("@type", "")).endswith("RetryInfo"):
+                return float(str(detail["retryDelay"]).rstrip("s"))
+    except (ValueError, KeyError, TypeError, AttributeError):
+        pass
+    return None
 
 
 def _extract_text(body: dict) -> str:

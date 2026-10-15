@@ -42,6 +42,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
+    # Sem isto o navegador esconde o Retry-After do JavaScript numa resposta
+    # cross-origin, e a tela não teria como mostrar quanto falta esperar.
+    expose_headers=["Retry-After"],
 )
 
 app.include_router(auth.router)

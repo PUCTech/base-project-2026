@@ -16,6 +16,7 @@ from app.services.llm import (
     ChatTurn,
     ContentBlockedError,
     LLMNotConfiguredError,
+    LLMRateLimitedError,
     LLMTimeoutError,
     LLMUnavailableError,
     ask_llm,
@@ -381,3 +382,61 @@ class TestRespostaEmJson:
         self.responder_texto(monkeypatch, "Claro! Aqui está a receita: {nome:")
         with pytest.raises(LLMUnavailableError):
             ask_llm_json("Uma receita", response_schema=self.SCHEMA)
+
+
+def resposta_de_cota(segundos: str) -> httpx.Response:
+    """O 429 do Gemini: a espera vem no corpo, num RetryInfo, e não em header."""
+    return httpx.Response(
+        429,
+        json={
+            "error": {
+                "code": 429,
+                "status": "RESOURCE_EXHAUSTED",
+                "details": [
+                    {"@type": "type.googleapis.com/google.rpc.QuotaFailure"},
+                    {"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": segundos},
+                ],
+            }
+        },
+    )
+
+
+class TestCotaEsgotada:
+    @pytest.fixture(autouse=True)
+    def sem_espera_real(self, monkeypatch):
+        self.esperas = []
+        monkeypatch.setattr(llm.time, "sleep", lambda s: self.esperas.append(s))
+
+    def test_espera_longa_desiste_na_hora_e_informa_quanto_falta(self, monkeypatch):
+        """Esperar 20s dentro da requisição deixaria a tela travada; melhor
+        devolver logo e dizer quanto falta."""
+        tentativas = []
+
+        def handler(request):
+            tentativas.append(1)
+            return resposta_de_cota("20.6s")
+
+        usar_transporte(monkeypatch, handler)
+
+        with pytest.raises(LLMRateLimitedError) as erro:
+            ask_llm("Olá?")
+        assert erro.value.retry_after == 20.6
+        assert len(tentativas) == 1
+        assert self.esperas == []
+
+    def test_espera_curta_e_retentada_com_o_tempo_do_provedor(self, monkeypatch):
+        respostas = iter([resposta_de_cota("2s"), httpx.Response(200, json=RESPOSTA_OK)])
+        usar_transporte(monkeypatch, lambda request: next(respostas))
+
+        assert ask_llm("Olá?") == "Uma resposta do modelo."
+        assert self.esperas == [2.0]
+
+    def test_429_sem_detalhes_esgota_as_tentativas(self, monkeypatch):
+        usar_transporte(monkeypatch, lambda request: httpx.Response(429, json={"error": "x"}))
+        with pytest.raises(LLMRateLimitedError) as erro:
+            ask_llm("Olá?")
+        assert erro.value.retry_after is None
+
+    def test_cota_esgotada_ainda_e_um_tipo_de_indisponivel(self):
+        """Quem só trata 'indisponível' continua funcionando."""
+        assert issubclass(LLMRateLimitedError, LLMUnavailableError)

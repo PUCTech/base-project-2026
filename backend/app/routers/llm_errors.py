@@ -5,6 +5,7 @@ responder do mesmo jeito quando o provedor falha. Concentrar o mapeamento aqui
 evita que cada router invente seu próprio status code para o mesmo problema.
 """
 
+import math
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -13,6 +14,7 @@ from fastapi import HTTPException, status
 from app.services.llm import (
     ContentBlockedError,
     LLMNotConfiguredError,
+    LLMRateLimitedError,
     LLMTimeoutError,
     LLMUnavailableError,
 )
@@ -43,6 +45,18 @@ def llm_errors_as_http() -> Iterator[None]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A pergunta foi recusada pelo filtro de conteúdo do provedor.",
+        ) from None
+    except LLMRateLimitedError as exc:
+        # Capturada antes de LLMUnavailableError, da qual é subclasse.
+        wait = math.ceil(exc.retry_after) if exc.retry_after else None
+        detail = "A IA atingiu o limite de uso por minuto."
+        detail += f" Tente de novo em {wait} segundos." if wait else " Tente de novo em instantes."
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=detail,
+            # Retry-After é o jeito padrão (RFC 9110) de dizer ao cliente
+            # quanto esperar; a tela pode usar o número sem parsear a frase.
+            headers={"Retry-After": str(wait)} if wait else None,
         ) from None
     except LLMUnavailableError:
         # A causa detalhada já foi para o log do servidor. A resposta HTTP fica

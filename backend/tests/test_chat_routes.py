@@ -11,7 +11,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.services import kitchen_ai
-from app.services.llm import ContentBlockedError, LLMTimeoutError, LLMUnavailableError
+from app.services.llm import (
+    ContentBlockedError,
+    LLMRateLimitedError,
+    LLMTimeoutError,
+    LLMUnavailableError,
+)
 from tests.conftest import PASSWORD
 
 RESPOSTA = "Cold start é a latência da primeira requisição após a ociosidade."
@@ -106,6 +111,25 @@ class TestFalhasDoProvedor:
         llm_falha(LLMUnavailableError("caiu"))
         response = client.post("/chat", headers=auth_headers, json={"message": "Olá"})
         assert response.status_code == 502
+
+    def test_cota_esgotada_vira_429_com_retry_after(
+        self, client: TestClient, auth_headers, llm_falha
+    ):
+        llm_falha(LLMRateLimitedError(retry_after=19.2))
+        response = client.post("/chat", headers=auth_headers, json={"message": "Olá"})
+
+        assert response.status_code == 429
+        assert response.headers["Retry-After"] == "20"
+        assert "20 segundos" in response.json()["detail"]
+
+    def test_cota_sem_tempo_informado_vira_429_sem_retry_after(
+        self, client: TestClient, auth_headers, llm_falha
+    ):
+        llm_falha(LLMRateLimitedError())
+        response = client.post("/chat", headers=auth_headers, json={"message": "Olá"})
+
+        assert response.status_code == 429
+        assert "Retry-After" not in response.headers
 
     def test_conteudo_barrado_vira_400(self, client: TestClient, auth_headers, llm_falha):
         llm_falha(ContentBlockedError("SAFETY"))
