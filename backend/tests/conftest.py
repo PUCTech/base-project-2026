@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.routers import auth, chat, pantry, users
+from app.routers import auth, chat, pantry, recipes, users
 
 USERNAME = "usuario.teste"
 PASSWORD = "senha-de-teste-123"
@@ -71,6 +71,7 @@ def client(db: Session) -> Generator[TestClient, None, None]:
     app.include_router(users.router)
     app.include_router(chat.router)
     app.include_router(pantry.router)
+    app.include_router(recipes.router)
 
     # Substitui a sessão real pela de teste em todas as rotas de uma vez.
     app.dependency_overrides[get_db] = lambda: db

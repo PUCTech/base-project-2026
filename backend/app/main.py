@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import Base, engine
-from app.routers import auth, chat, pantry, users
+from app.routers import auth, chat, pantry, recipes, users
 
 settings = get_settings()
 
@@ -37,7 +37,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
 )
 
@@ -45,6 +45,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(chat.router)
 app.include_router(pantry.router)
+app.include_router(recipes.router)
 
 
 @app.get("/health", tags=["health"], summary="Liveness check")

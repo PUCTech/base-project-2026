@@ -7,6 +7,7 @@ qualquer `create_all` — e para que os relacionamentos por string ("User",
 
 from app.models.message import Message
 from app.models.pantry_item import PantryItem
+from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
 from app.models.user import User
 
-__all__ = ["Message", "PantryItem", "User"]
+__all__ = ["Message", "PantryItem", "Recipe", "RecipeIngredient", "RecipeStep", "User"]
