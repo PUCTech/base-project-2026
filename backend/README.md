@@ -41,10 +41,17 @@ app/
 ├── config.py        # variáveis de ambiente validadas com pydantic-settings
 ├── database.py      # engine, sessão e Base do SQLAlchemy
 ├── dependencies.py  # get_current_user: resolve o usuário a partir do token
+├── seed.py          # receitas de demonstração (python -m app.seed)
 ├── routers/         # camada HTTP: rotas e status codes
 ├── schemas/         # Pydantic: validação da entrada e forma da saída
 ├── models/          # SQLAlchemy: tabelas e relacionamentos
-└── services/        # regra de negócio: hash, sessão, LLM
+└── services/        # regra de negócio
+    ├── ingredients.py    # nomes, unidades e "o que falta" — funções puras
+    ├── pantry.py, recipes.py, recipe_social.py, shopping.py
+    ├── recipe_views.py   # a resposta montada para quem vê
+    ├── storage.py        # fotos: validação, reprocessamento, disco
+    ├── kitchen_ai.py     # contexto da cozinha, prompts, validação da IA
+    └── llm.py            # o único módulo que conhece a API do Gemini
 ```
 
 A dependência aponta numa direção só: `routers` → `services` → `models`. Um módulo de
@@ -59,6 +66,10 @@ Basta para o escopo do projeto, mas tem um limite importante: `create_all` só c
 que ainda não existe — nunca altera uma existente. Se você renomear uma coluna no model, o
 banco continua com a antiga e a divergência só aparece na primeira query que quebrar. Em
 produção de verdade, Alembic.
+
+O assistente de cozinha cabe nesse limite porque só **acrescenta** tabelas: num banco que já
+existia, a próxima subida cria as novas e não toca em `users` nem `messages`. A primeira
+mudança numa coluna existente é o momento de adotar migrações.
 
 **A senha passa por SHA-256 antes do bcrypt** (`app/services/security.py`). O bcrypt
 ignora tudo além do 72º byte; sem o pré-hash, uma senha longa teria o final descartado em
@@ -170,3 +181,19 @@ O que **não** é retentado:
   o navegador aguarda, e o usuário veria a aba travada em vez de um erro.
 - **`400`, `401`, `403`, `404`.** Chave inválida ou modelo inexistente não melhoram na segunda
   tentativa — insistir só atrasaria a resposta de erro.
+
+## Cota esgotada (429)
+
+No plano gratuito o `gemini-3.6-flash` aceita **5 requisições por minuto**. O assistente de
+cozinha usa IA em quatro telas, e uma rodada de testes manuais passa disso fácil.
+
+O `429` do Gemini não traz o header `Retry-After`: a espera vem no corpo, num item
+`RetryInfo` (`"retryDelay": "20s"`). Antes de ler esse campo, o backend retentava em 1–2 s,
+falhava de novo e respondia `502 "indisponível"` — a mensagem errada. Agora:
+
+- espera curta (até 10 s): o backend espera o tempo indicado e tenta de novo;
+- espera longa: ele não prende a requisição — levanta `LLMRateLimitedError` na hora, e a API
+  responde `429` com `Retry-After`, que o CORS expõe para o frontend mostrar quanto falta.
+
+`LLMRateLimitedError` é subclasse de `LLMUnavailableError`: código que só sabe tratar
+"indisponível" continua funcionando.

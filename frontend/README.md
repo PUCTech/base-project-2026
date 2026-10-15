@@ -23,14 +23,33 @@ npm run build      # build de produção
 
 ```
 app/
-├── layout.tsx       # AuthProvider envolvendo a aplicação
-├── page.tsx         # raiz: redireciona para /chat ou /login
-├── login/page.tsx   # entrar e criar conta
-├── chat/page.tsx    # tela de chat
-└── globals.css      # tema em custom properties, claro e escuro
+├── layout.tsx                 # fontes (next/font), AuthProvider e ToastProvider
+├── page.tsx                   # raiz: redireciona para /recipes ou /login
+├── login/page.tsx             # entrar e criar conta
+├── recipes/
+│   ├── page.tsx               # listagem, busca e filtros
+│   ├── new/page.tsx           # receita nova (com "Gerar com IA")
+│   └── [id]/
+│       ├── page.tsx           # detalhe, avaliação, comentários, "o que falta"
+│       ├── edit/page.tsx      # edição (só o autor)
+│       └── cook/page.tsx      # modo cozinha: passo a passo e timers
+├── pantry/page.tsx            # despensa e cadastro rápido por IA
+├── shopping/page.tsx          # lista de compras e sugestões da IA
+├── chat/page.tsx              # Chef IA
+└── globals.css                # tema claro em custom properties
+components/
+├── AppShell.tsx               # moldura das telas autenticadas e navegação
+├── RecipeForm.tsx             # formulário de receita (criar e editar)
+├── recipe-bits.tsx            # foto, estrelas, barra "você tem X de Y"
+└── icons.tsx                  # ícones SVG inline
 lib/
-├── api.ts           # cliente HTTP: todo acesso à rede passa por aqui
-└── auth.tsx         # estado de autenticação (Context API)
+├── api.ts                     # cliente HTTP: todo acesso à rede passa por aqui
+├── auth.tsx                   # estado de autenticação (Context API)
+├── hooks.ts                   # useResource: carregando/erro/dados + regra do 401
+├── timers.ts                  # timers, alarme e Wake Lock do modo cozinha
+├── draft.ts                   # rascunho de receita entre o chat e o formulário
+├── format.ts                  # rótulos e formatação em pt-BR
+└── toast.tsx                  # avisos curtos
 ```
 
 ## Decisões que não são óbvias no código
@@ -94,3 +113,32 @@ fixado no Next 15.
 O impacto é limitado: a falha do `postcss` é de carregamento de source map em tempo de build,
 não um vetor de ataque para a aplicação em produção. Atualizar para Node 20 e Next 16 é o
 próximo passo natural.
+
+## Decisões do assistente de cozinha
+
+**Tema claro único.** Cores, raios e sombras são custom properties em `globals.css`; nenhuma
+regra usa cor literal. Trocar a identidade visual é editar um bloco.
+
+**`useResource` em vez de uma biblioteca de *data fetching*.** Toda tela precisa do mesmo trio
+carregando/erro/dados e da mesma regra para `401`. O hook tem poucas linhas, e ainda descarta
+respostas que chegam fora de ordem — a busca digitada rápido não mostra o resultado antigo.
+
+**Atualização otimista onde a espera atrapalha.** Favoritar e marcar item da lista mudam a
+tela na hora e desfazem se a API recusar. No mercado, com sinal fraco, esperar a rede para
+riscar um item tornaria a lista inutilizável.
+
+**A IA propõe, a pessoa revisa.** O rascunho de receita preenche o formulário; o cadastro
+rápido mostra os itens marcados antes de gravar; as sugestões de compra vêm com checkbox.
+Nada que a IA gera é salvo sem um clique de quem usa.
+
+**Markdown do modelo sem HTML cru.** A resposta do Chef é renderizada com `react-markdown`, que
+monta elementos React e, por padrão, não interpreta HTML: um `<img onerror=...>` na resposta
+aparece como texto. Não há `dangerouslySetInnerHTML` no projeto.
+
+**Timers pelo instante final.** O navegador desacelera o `setInterval` de abas em segundo
+plano; um contador decrescente atrasaria. Cada timer guarda quando termina, e cada tick só
+recalcula a diferença. O alarme usa a Web Audio API, destravada no clique que inicia o timer —
+navegadores só tocam áudio depois de um gesto do usuário.
+
+**`<img>` e não `next/image` nas fotos.** O backend já entrega as fotos redimensionadas e em
+WebP; o otimizador do Next seria só um salto a mais.
