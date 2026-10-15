@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import get_settings
 from app.database import Base, engine
-from app.routers import auth, chat, pantry, recipe_social, recipes, shopping, users
+from app.routers import ai, auth, chat, pantry, recipe_social, recipes, shopping, users
 from app.services.storage import PUBLIC_PREFIX, ensure_media_dirs
 
 settings = get_settings()
@@ -51,6 +51,7 @@ app.include_router(pantry.router)
 app.include_router(recipes.router)
 app.include_router(recipe_social.router)
 app.include_router(shopping.router)
+app.include_router(ai.router)
 
 # Fotos das receitas, servidas direto do disco. Receitas são públicas, e as
 # fotos também: não há token na URL de uma <img>. Por isso o nome do arquivo é

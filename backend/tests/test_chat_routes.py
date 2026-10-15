@@ -1,7 +1,8 @@
 """Testes das rotas de chat.
 
 O provedor de LLM é substituído por um dublê: os testes verificam o contrato da
-rota e a persistência, não a qualidade da resposta do modelo. Chamar a API real
+rota, a persistência e o contexto enviado, não a qualidade da resposta do
+modelo. Chamar a API real
 aqui tornaria a suíte lenta, dependente de rede, gastadora de cota e — pior —
 não determinística.
 """
@@ -9,7 +10,7 @@ não determinística.
 import pytest
 from fastapi.testclient import TestClient
 
-from app.routers import chat as chat_router
+from app.services import kitchen_ai
 from app.services.llm import ContentBlockedError, LLMTimeoutError, LLMUnavailableError
 from tests.conftest import PASSWORD
 
@@ -19,7 +20,7 @@ RESPOSTA = "Cold start é a latência da primeira requisição após a ociosidad
 @pytest.fixture
 def llm_responde(monkeypatch):
     """Faz o provedor devolver uma resposta fixa."""
-    monkeypatch.setattr(chat_router, "ask_llm", lambda pergunta: RESPOSTA)
+    monkeypatch.setattr(kitchen_ai, "ask_llm", lambda pergunta, **contexto: RESPOSTA)
 
 
 @pytest.fixture
@@ -27,10 +28,10 @@ def llm_falha(monkeypatch):
     """Devolve uma função que configura a falha desejada."""
 
     def configurar(excecao: Exception):
-        def levantar(pergunta: str):
+        def levantar(pergunta: str, **contexto):
             raise excecao
 
-        monkeypatch.setattr(chat_router, "ask_llm", levantar)
+        monkeypatch.setattr(kitchen_ai, "ask_llm", levantar)
 
     return configurar
 
@@ -60,7 +61,7 @@ class TestEnvioDeMensagem:
     ):
         recebido = {}
         monkeypatch.setattr(
-            chat_router, "ask_llm", lambda p: recebido.setdefault("pergunta", p) or RESPOSTA
+            kitchen_ai, "ask_llm", lambda p, **contexto: recebido.setdefault("pergunta", p) or RESPOSTA
         )
 
         client.post("/chat", headers=auth_headers, json={"message": "  Com espaços  "})
@@ -88,7 +89,7 @@ class TestEnvioDeMensagem:
         """Validação rejeitada não pode gastar cota do provedor."""
         chamadas = []
         monkeypatch.setattr(
-            chat_router, "ask_llm", lambda p: chamadas.append(p) or RESPOSTA
+            kitchen_ai, "ask_llm", lambda p, **contexto: chamadas.append(p) or RESPOSTA
         )
 
         client.post("/chat", headers=auth_headers, json={"message": "   "})
