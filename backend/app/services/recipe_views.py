@@ -7,6 +7,7 @@ HTTP e o serviço de receitas continue só cuidando de gravar.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
@@ -21,16 +22,37 @@ from app.schemas.recipe import (
 )
 from app.services.ingredients import shortfall_for, shortfalls
 from app.services.pantry import list_pantry
+from app.services.recipe_social import RatingStats, favorite_ids, my_rating, rating_stats
+
+
+@dataclass
+class _Context:
+    """O que a visão precisa saber sobre quem está olhando."""
+
+    pantry: list[PantryItem]
+    favorites: set[int]
+    stats: dict[int, RatingStats]
+
+
+def _context(db: Session, viewer_id: int, recipes: Sequence[Recipe]) -> _Context:
+    # Uma consulta para a despensa, uma para os favoritos e uma para as notas —
+    # para a listagem inteira, e não uma de cada por receita.
+    ids = [recipe.id for recipe in recipes]
+    return _Context(
+        pantry=list_pantry(db, viewer_id),
+        favorites=favorite_ids(db, viewer_id, ids),
+        stats=rating_stats(db, ids),
+    )
 
 
 def summarize(db: Session, viewer_id: int, recipes: Sequence[Recipe]) -> list[RecipeSummary]:
-    # A despensa é lida uma vez para a listagem inteira, não uma vez por receita.
-    pantry = list_pantry(db, viewer_id)
-    return [_summary(recipe, pantry) for recipe in recipes]
+    context = _context(db, viewer_id, recipes)
+    return [_summary(recipe, context) for recipe in recipes]
 
 
 def detail(db: Session, viewer_id: int, recipe: Recipe) -> RecipeDetail:
-    pantry = list_pantry(db, viewer_id)
+    context = _context(db, viewer_id, [recipe])
+    pantry = context.pantry
     ingredients = [
         IngredientRead.model_validate(ingredient).model_copy(
             update={"in_pantry": shortfall_for(ingredient, pantry) is None}
@@ -38,9 +60,10 @@ def detail(db: Session, viewer_id: int, recipe: Recipe) -> RecipeDetail:
         for ingredient in recipe.ingredients
     ]
     return RecipeDetail(
-        **_summary(recipe, pantry).model_dump(),
+        **_summary(recipe, context).model_dump(),
         ingredients=ingredients,
         steps=[StepRead.model_validate(step) for step in recipe.steps],
+        my_rating=my_rating(db, viewer_id, recipe.id),
     )
 
 
@@ -51,8 +74,9 @@ def missing_ingredients(db: Session, viewer_id: int, recipe: Recipe) -> list[Mis
     ]
 
 
-def _summary(recipe: Recipe, pantry: list[PantryItem]) -> RecipeSummary:
-    missing = len(shortfalls(recipe.ingredients, pantry))
+def _summary(recipe: Recipe, context: _Context) -> RecipeSummary:
+    missing = len(shortfalls(recipe.ingredients, context.pantry))
+    stats = context.stats.get(recipe.id, RatingStats(average=None, count=0))
     return RecipeSummary(
         id=recipe.id,
         title=recipe.title,
@@ -64,6 +88,9 @@ def _summary(recipe: Recipe, pantry: list[PantryItem]) -> RecipeSummary:
         author=AuthorRead.model_validate(recipe.author),
         ingredient_count=len(recipe.ingredients),
         pantry_have=len(recipe.ingredients) - missing,
+        avg_rating=stats.average,
+        rating_count=stats.count,
+        is_favorite=recipe.id in context.favorites,
         created_at=recipe.created_at,
         updated_at=recipe.updated_at,
     )

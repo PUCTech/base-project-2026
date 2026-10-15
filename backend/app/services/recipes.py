@@ -8,7 +8,7 @@ autor altera ou apaga. Por isso aqui a resposta para "não é seu" é 403, e nã
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models import Recipe, RecipeIngredient, RecipeStep
+from app.models import Recipe, RecipeFavorite, RecipeIngredient, RecipeStep
 from app.schemas.recipe import RecipeCreate, RecipeScope
 
 
@@ -44,6 +44,11 @@ def list_recipes(
 
     if scope == "mine":
         query = query.where(Recipe.author_id == user_id)
+    elif scope == "favorites":
+        query = query.join(
+            RecipeFavorite,
+            (RecipeFavorite.recipe_id == Recipe.id) & (RecipeFavorite.user_id == user_id),
+        )
 
     if search:
         # O termo entra como parâmetro da consulta, nunca concatenado ao SQL.

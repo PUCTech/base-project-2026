@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.database import Base, engine
-from app.routers import auth, chat, pantry, recipes, users
+from app.routers import auth, chat, pantry, recipe_social, recipes, users
 
 settings = get_settings()
 
@@ -46,6 +46,7 @@ app.include_router(users.router)
 app.include_router(chat.router)
 app.include_router(pantry.router)
 app.include_router(recipes.router)
+app.include_router(recipe_social.router)
 
 
 @app.get("/health", tags=["health"], summary="Liveness check")

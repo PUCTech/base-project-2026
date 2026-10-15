@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.schemas.common import Difficulty, ItemName, OptionalText, PositiveQuantity, Unit
 
-RecipeScope = Literal["all", "mine"]
+RecipeScope = Literal["all", "mine", "favorites"]
 
 
 class IngredientIn(BaseModel):
@@ -94,6 +94,9 @@ class RecipeSummary(BaseModel):
     ingredient_count: int
     # Quantos ingredientes da receita a despensa de quem está vendo cobre.
     pantry_have: int
+    avg_rating: float | None
+    rating_count: int
+    is_favorite: bool
     created_at: datetime
     updated_at: datetime
 
@@ -101,6 +104,8 @@ class RecipeSummary(BaseModel):
 class RecipeDetail(RecipeSummary):
     ingredients: list[IngredientRead]
     steps: list[StepRead]
+    # A nota que quem está vendo deu, para a tela marcar as estrelas.
+    my_rating: int | None
 
 
 class MissingIngredient(BaseModel):
@@ -109,3 +114,30 @@ class MissingIngredient(BaseModel):
     name: str
     quantity: float | None
     unit: str | None
+
+
+class RatingIn(BaseModel):
+    """Corpo de PUT /recipes/{id}/rating."""
+
+    stars: int = Field(ge=1, le=5)
+
+
+class RatingSummary(BaseModel):
+    """Resposta de PUT e DELETE /recipes/{id}/rating: os números já atualizados."""
+
+    avg_rating: float | None
+    rating_count: int
+    my_rating: int | None
+
+
+class CommentIn(BaseModel):
+    content: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+
+
+class CommentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    content: str
+    author: AuthorRead
+    created_at: datetime
