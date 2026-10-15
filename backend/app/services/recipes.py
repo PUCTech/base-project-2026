@@ -125,3 +125,24 @@ def _apply(recipe: Recipe, data: RecipeCreate) -> None:
     recipe.steps = [
         RecipeStep(position=index, **step.model_dump()) for index, step in enumerate(data.steps)
     ]
+
+
+def set_recipe_image(db: Session, recipe: Recipe, filename: str | None) -> str | None:
+    """Troca a foto da receita e devolve o nome da anterior.
+
+    Quem chama apaga o arquivo antigo depois do commit, pelo mesmo motivo do
+    `delete_recipe`: se o commit falhar, a foto antiga ainda é a da receita.
+    """
+    previous = recipe.image_filename
+    recipe.image_filename = filename
+    db.commit()
+    return previous
+
+
+def image_filenames_by_author(db: Session, user_id: int) -> list[str]:
+    """Fotos de todas as receitas de um usuário, para limpar ao apagar a conta."""
+    return [
+        name
+        for name in db.scalars(select(Recipe.image_filename).where(Recipe.author_id == user_id))
+        if name
+    ]

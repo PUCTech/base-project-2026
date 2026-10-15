@@ -89,6 +89,8 @@ class RecipeSummary(BaseModel):
     servings: int
     prep_minutes: int | None
     difficulty: Difficulty
+    # Caminho relativo à URL da API ("/media/recipes/<arquivo>.webp").
+    image_url: str | None
     created_by_ai: bool
     author: AuthorRead
     ingredient_count: int

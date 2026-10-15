@@ -41,3 +41,6 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Fotos enviadas pelos usuários quando o backend roda fora do Docker
+backend/media/

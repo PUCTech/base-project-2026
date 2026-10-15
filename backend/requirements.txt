@@ -15,6 +15,13 @@ psycopg2-binary==2.9.10
 # cliente que o próprio TestClient do FastAPI já usa.
 httpx==0.28.1
 
+# ---- Upload de imagens ----
+# python-multipart: exigido pelo FastAPI para receber multipart/form-data.
+# Pillow: identifica o formato pelo conteúdo (e não pelo Content-Type que o
+# cliente declara) e reprocessa a imagem, descartando metadados EXIF.
+python-multipart==0.0.32
+pillow==12.3.0
+
 # ---- Segurança ----
 # bcrypt direto, sem passlib: o passlib não recebe release desde 2020 e
 # quebra ao ler a versão do bcrypt >= 4.1. A API do bcrypt é pequena o

@@ -52,6 +52,10 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.6-flash}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      MEDIA_DIR: /app/media
+    volumes:
+      # Fotos das receitas. Sem volume, elas sumiriam a cada rebuild da imagem.
+      - media-data:/app/media
     ports:
       - "8000:8000"
     healthcheck:
@@ -63,3 +67,4 @@ services:
 
 volumes:
   postgres-data:
+  media-data:

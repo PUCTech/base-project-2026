@@ -3,7 +3,7 @@
 Leitura aberta a qualquer usuário autenticado; escrita só para o autor.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -16,15 +16,17 @@ from app.schemas.recipe import (
     RecipeScope,
     RecipeSummary,
 )
-from app.services import recipe_views
+from app.services import recipe_views, storage
 from app.services.recipes import (
     NotRecipeAuthorError,
     RecipeNotFoundError,
     create_recipe,
     delete_recipe,
+    get_own_recipe,
     get_recipe,
     list_recipes,
     replace_recipe,
+    set_recipe_image,
 )
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
@@ -106,11 +108,12 @@ def remove_recipe(
     db: Session = Depends(get_db),
 ) -> Response:
     try:
-        delete_recipe(db, current_user.id, recipe_id)
+        image = delete_recipe(db, current_user.id, recipe_id)
     except RecipeNotFoundError:
         raise NOT_FOUND from None
     except NotRecipeAuthorError:
         raise NOT_AUTHOR from None
+    storage.delete_recipe_image(image)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -129,3 +132,70 @@ def read_missing_ingredients(
     except RecipeNotFoundError:
         raise NOT_FOUND from None
     return recipe_views.missing_ingredients(db, current_user.id, recipe)
+
+
+def _own_recipe_or_http_error(db: Session, user_id: int, recipe_id: int):
+    try:
+        return get_own_recipe(db, user_id, recipe_id)
+    except RecipeNotFoundError:
+        raise NOT_FOUND from None
+    except NotRecipeAuthorError:
+        raise NOT_AUTHOR from None
+
+
+@router.put(
+    "/{recipe_id}/image",
+    response_model=RecipeDetail,
+    summary="Envia ou troca a foto da receita (JPEG, PNG ou WebP, até 5 MB)",
+)
+def upload_image(
+    recipe_id: int,
+    file: UploadFile = File(description="A foto, no campo `file` de um multipart/form-data"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> RecipeDetail:
+    """Rota síncrona de propósito: decodificar e reprocessar a imagem usa CPU,
+    e o FastAPI roda rotas `def` numa thread à parte, sem travar as demais
+    requisições.
+
+    O limite de 5 MB é conferido aqui, mas o corpo inteiro da requisição já
+    chegou ao servidor antes disso. Em produção, o limite de verdade fica no
+    proxy reverso (`client_max_body_size` no nginx), que recusa o upload antes
+    de ele ocupar disco.
+    """
+    # Permissão primeiro: quem não é autor não chega a gravar nada em disco.
+    recipe = _own_recipe_or_http_error(db, current_user.id, recipe_id)
+
+    try:
+        filename = storage.save_recipe_image(file.file)
+    except storage.ImageTooLargeError:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="A imagem passa de 5 MB",
+        ) from None
+    except storage.InvalidImageError:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Envie uma imagem JPEG, PNG ou WebP válida",
+        ) from None
+
+    try:
+        previous = set_recipe_image(db, recipe, filename)
+    except Exception:
+        # A foto nova já está em disco, mas não foi associada a nada.
+        storage.delete_recipe_image(filename)
+        raise
+    storage.delete_recipe_image(previous)
+
+    return recipe_views.detail(db, current_user.id, get_recipe(db, recipe_id))
+
+
+@router.delete("/{recipe_id}/image", response_model=RecipeDetail, summary="Remove a foto")
+def remove_image(
+    recipe_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> RecipeDetail:
+    recipe = _own_recipe_or_http_error(db, current_user.id, recipe_id)
+    storage.delete_recipe_image(set_recipe_image(db, recipe, None))
+    return recipe_views.detail(db, current_user.id, get_recipe(db, recipe_id))

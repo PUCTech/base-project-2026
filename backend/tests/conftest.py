@@ -21,10 +21,18 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.routers import auth, chat, pantry, recipe_social, recipes, users
+from app.services import storage
 
 USERNAME = "usuario.teste"
 PASSWORD = "senha-de-teste-123"
 OTHER_USERNAME = "outra.pessoa"
+
+
+@pytest.fixture(autouse=True)
+def media_dir(tmp_path, monkeypatch):
+    """Cada teste grava fotos num diretório temporário próprio, nunca no real."""
+    monkeypatch.setattr(storage.settings, "media_dir", str(tmp_path / "media"))
+    return tmp_path / "media"
 
 
 @pytest.fixture

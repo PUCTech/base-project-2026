@@ -44,6 +44,11 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels /wheels/* \
 
 COPY --chown=appuser:appuser app ./app
 
+# Diretório das fotos enviadas, de propriedade do usuário sem privilégios. O
+# volume do compose é montado aqui, e um volume nomeado novo herda o dono deste
+# diretório — sem isso, o appuser não teria permissão de gravar nele.
+RUN mkdir -p /app/media && chown appuser:appuser /app/media
+
 USER appuser
 
 EXPOSE 8000

@@ -13,6 +13,8 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import User
 from app.schemas.user import UserRead, UserUpdate
+from app.services import storage
+from app.services.recipes import image_filenames_by_author
 from app.services.users import UsernameAlreadyExistsError, delete_user, update_user
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -43,7 +45,12 @@ def delete_me(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Response:
+    # As linhas das receitas somem por cascata no banco, mas os arquivos das
+    # fotos estão fora dele: a lista é lida antes e apagada depois do commit.
+    images = image_filenames_by_author(db, current_user.id)
     delete_user(db, current_user)
+    for image in images:
+        storage.delete_recipe_image(image)
     # 204 não tem corpo. Tokens já emitidos continuam válidos até expirar:
     # é a contrapartida de uma sessão sem estado no servidor. Aqui isso não
     # dá acesso a nada, porque get_current_user não encontra mais o usuário.

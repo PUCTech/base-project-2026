@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # código novo.
     gemini_model: str = "gemini-3.6-flash"
 
+    # ---- Arquivos enviados (fotos de receitas) ----
+    # Relativo ao diretório de trabalho; no container, /app/media, montado
+    # como volume para sobreviver à recriação do container.
+    media_dir: str = "media"
+
     # ---- CORS ----
     cors_origins: str = "http://localhost:3000"
 

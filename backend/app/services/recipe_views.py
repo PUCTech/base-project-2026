@@ -23,6 +23,7 @@ from app.schemas.recipe import (
 from app.services.ingredients import shortfall_for, shortfalls
 from app.services.pantry import list_pantry
 from app.services.recipe_social import RatingStats, favorite_ids, my_rating, rating_stats
+from app.services.storage import public_url
 
 
 @dataclass
@@ -84,6 +85,7 @@ def _summary(recipe: Recipe, context: _Context) -> RecipeSummary:
         servings=recipe.servings,
         prep_minutes=recipe.prep_minutes,
         difficulty=recipe.difficulty,
+        image_url=public_url(recipe.image_filename),
         created_by_ai=recipe.created_by_ai,
         author=AuthorRead.model_validate(recipe.author),
         ingredient_count=len(recipe.ingredients),
