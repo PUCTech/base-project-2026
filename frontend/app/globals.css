@@ -1947,6 +1947,31 @@ input[type="checkbox"] {
     display: none;
   }
 
+  /* Linha da despensa e da lista mais compacta, para nome, quantidade e
+     ações caberem juntos na largura de um celular. */
+  .item {
+    gap: 6px;
+    padding-left: 12px;
+  }
+
+  .item-main {
+    flex-basis: 96px;
+  }
+
+  .item > .icon-button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .qty-stepper .icon-button {
+    width: 30px;
+    height: 30px;
+  }
+
+  .qty-value {
+    min-width: 50px;
+  }
+
   .cook-step {
     padding: 28px 20px;
   }
