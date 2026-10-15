@@ -95,13 +95,28 @@ def add_or_merge(
 ) -> list[PantryItem]:
     """Adiciona itens à despensa, somando aos que já existem.
 
-    É o que roda ao finalizar uma compra e no cadastro em lote: comprar arroz
-    com arroz já na despensa aumenta a quantidade, em vez de recusar com 409
-    como faz o cadastro unitário.
+    É o que roda no cadastro em lote: comprar arroz com arroz já na despensa
+    aumenta a quantidade, em vez de recusar com 409 como faz o cadastro
+    unitário.
 
-    Tudo num commit só. Se um item falhar, nenhum entra — uma compra
-    finalizada pela metade deixaria a despensa e a lista de compras
-    descasadas.
+    Tudo num commit só. Se um item falhar, nenhum entra.
+    """
+    touched = merge_into_pantry(db, user_id, entries)
+    _commit_or_duplicate(db, "lote")
+    for item in touched:
+        db.refresh(item)
+    return touched
+
+
+def merge_into_pantry(
+    db: Session, user_id: int, entries: Iterable[PantryItemCreate]
+) -> list[PantryItem]:
+    """O mesmo que `add_or_merge`, mas sem commit.
+
+    Existe para quem precisa juntar esta escrita a outras na mesma transação:
+    finalizar a compra move os itens para a despensa e os tira da lista, e as
+    duas coisas precisam acontecer juntas — uma compra finalizada pela metade
+    deixaria a despensa e a lista descasadas.
     """
     touched: list[PantryItem] = []
 
@@ -121,9 +136,6 @@ def add_or_merge(
         if item not in touched:
             touched.append(item)
 
-    _commit_or_duplicate(db, "lote")
-    for item in touched:
-        db.refresh(item)
     return touched
 
 

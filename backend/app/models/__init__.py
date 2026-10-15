@@ -9,6 +9,7 @@ from app.models.message import Message
 from app.models.pantry_item import PantryItem
 from app.models.recipe import Recipe, RecipeIngredient, RecipeStep
 from app.models.recipe_social import RecipeComment, RecipeFavorite, RecipeRating
+from app.models.shopping_item import ShoppingItem
 from app.models.user import User
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "RecipeIngredient",
     "RecipeRating",
     "RecipeStep",
+    "ShoppingItem",
     "User",
 ]
