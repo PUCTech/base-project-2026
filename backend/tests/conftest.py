@@ -20,10 +20,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
-from app.routers import auth, chat, users
+from app.routers import auth, chat, pantry, users
 
 USERNAME = "usuario.teste"
 PASSWORD = "senha-de-teste-123"
+OTHER_USERNAME = "outra.pessoa"
 
 
 @pytest.fixture
@@ -69,6 +70,7 @@ def client(db: Session) -> Generator[TestClient, None, None]:
     app.include_router(auth.router)
     app.include_router(users.router)
     app.include_router(chat.router)
+    app.include_router(pantry.router)
 
     # Substitui a sessão real pela de teste em todas as rotas de uma vez.
     app.dependency_overrides[get_db] = lambda: db
@@ -90,6 +92,17 @@ def registered_user(client: TestClient) -> dict:
 def auth_headers(client: TestClient, registered_user: dict) -> dict[str, str]:
     response = client.post(
         "/auth/login", json={"username": USERNAME, "password": PASSWORD}
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@pytest.fixture
+def other_auth_headers(client: TestClient) -> dict[str, str]:
+    """Uma segunda conta, para provar que um usuário não alcança os dados do outro."""
+    client.post("/auth/register", json={"username": OTHER_USERNAME, "password": PASSWORD})
+    response = client.post(
+        "/auth/login", json={"username": OTHER_USERNAME, "password": PASSWORD}
     )
     assert response.status_code == 200
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
