@@ -6,16 +6,20 @@ que não dá para provocar de propósito contra o provedor real, e que são
 justamente as que quebram em produção.
 """
 
+import json
+
 import httpx
 import pytest
 
 from app.services import llm
 from app.services.llm import (
+    ChatTurn,
     ContentBlockedError,
     LLMNotConfiguredError,
     LLMTimeoutError,
     LLMUnavailableError,
     ask_llm,
+    ask_llm_json,
 )
 
 RESPOSTA_OK = {
@@ -299,3 +303,81 @@ class TestRetentativa:
             ask_llm("Olá?")
         assert esperas[0] >= llm.BACKOFF_BASE_SECONDS
         assert esperas[1] >= llm.BACKOFF_BASE_SECONDS * 2
+
+
+class TestContextoDaConversa:
+    """Histórico e instrução de sistema chegam ao provedor no formato dele."""
+
+    def capturar_corpo(self, monkeypatch) -> dict:
+        capturado: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capturado.update(json.loads(request.content))
+            return httpx.Response(200, json=RESPOSTA_OK)
+
+        usar_transporte(monkeypatch, handler)
+        return capturado
+
+    def test_sem_contexto_envia_so_a_pergunta(self, monkeypatch):
+        corpo = self.capturar_corpo(monkeypatch)
+        ask_llm("Olá?")
+
+        assert corpo["contents"] == [{"role": "user", "parts": [{"text": "Olá?"}]}]
+        assert "systemInstruction" not in corpo
+
+    def test_historico_vem_antes_da_pergunta_com_papeis_do_provedor(self, monkeypatch):
+        """'assistant' é vocabulário nosso; o Gemini chama esse papel de 'model'."""
+        corpo = self.capturar_corpo(monkeypatch)
+        ask_llm(
+            "E com frango?",
+            history=[
+                ChatTurn(role="user", content="Uma receita com arroz?"),
+                ChatTurn(role="assistant", content="Arroz de forno."),
+            ],
+        )
+
+        assert [c["role"] for c in corpo["contents"]] == ["user", "model", "user"]
+        assert corpo["contents"][-1]["parts"][0]["text"] == "E com frango?"
+
+    def test_instrucao_de_sistema_fica_separada_das_falas(self, monkeypatch):
+        corpo = self.capturar_corpo(monkeypatch)
+        ask_llm("Olá?", system_instruction="Você é um assistente de cozinha.")
+
+        assert corpo["systemInstruction"]["parts"][0]["text"] == "Você é um assistente de cozinha."
+        assert all("assistente de cozinha" not in str(c) for c in corpo["contents"])
+
+
+class TestRespostaEmJson:
+    SCHEMA = {"type": "OBJECT", "properties": {"nome": {"type": "STRING"}}}
+
+    def responder_texto(self, monkeypatch, texto: str) -> dict:
+        capturado: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capturado.update(json.loads(request.content))
+            return httpx.Response(
+                200, json={"candidates": [{"content": {"parts": [{"text": texto}]}}]}
+            )
+
+        usar_transporte(monkeypatch, handler)
+        return capturado
+
+    def test_devolve_o_json_ja_decodificado(self, monkeypatch):
+        self.responder_texto(monkeypatch, '{"nome": "Bolo de cenoura"}')
+        assert ask_llm_json("Uma receita", response_schema=self.SCHEMA) == {
+            "nome": "Bolo de cenoura"
+        }
+
+    def test_pede_json_e_envia_o_schema(self, monkeypatch):
+        corpo = self.responder_texto(monkeypatch, "{}")
+        ask_llm_json("Uma receita", response_schema=self.SCHEMA)
+
+        config = corpo["generationConfig"]
+        assert config["responseMimeType"] == "application/json"
+        assert config["responseSchema"] == self.SCHEMA
+
+    def test_json_invalido_vira_indisponivel(self, monkeypatch):
+        """Resposta quebrada é falha do provedor, não um 500 nosso."""
+        self.responder_texto(monkeypatch, "Claro! Aqui está a receita: {nome:")
+        with pytest.raises(LLMUnavailableError):
+            ask_llm_json("Uma receita", response_schema=self.SCHEMA)

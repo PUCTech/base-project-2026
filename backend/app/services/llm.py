@@ -1,16 +1,21 @@
 """Integração com o provedor de LLM (Gemini, via Google AI Studio).
 
 Esta é a única parte do sistema que conhece o formato da API do provedor.
-Trocar de provedor mexe neste arquivo e em nenhum outro — os routers só veem
-`ask_llm(pergunta) -> str` e as exceções declaradas aqui.
+Trocar de provedor mexe neste arquivo e em nenhum outro — o resto do sistema só
+vê `ask_llm(...) -> str`, `ask_llm_json(...) -> dict` e as exceções declaradas
+aqui.
 
 A chave da API nunca sai deste módulo, nunca vai para log e nunca entra numa
 resposta HTTP.
 """
 
+import json
 import logging
 import random
 import time
+from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Any, Literal
 
 import httpx
 
@@ -60,15 +65,88 @@ class ContentBlockedError(Exception):
     """O provedor recusou a pergunta por filtro de conteúdo."""
 
 
-def ask_llm(question: str) -> str:
-    """Envia a pergunta ao modelo e devolve o texto da resposta."""
+@dataclass(frozen=True)
+class ChatTurn:
+    """Uma fala anterior da conversa, no vocabulário do próprio sistema.
+
+    O resto da aplicação fala em `user`/`assistant`; quem sabe que o Gemini
+    chama o segundo de `model` é só este módulo.
+    """
+
+    role: Literal["user", "assistant"]
+    content: str
+
+
+def ask_llm(
+    question: str,
+    *,
+    history: Sequence[ChatTurn] = (),
+    system_instruction: str | None = None,
+) -> str:
+    """Envia a pergunta ao modelo e devolve o texto da resposta.
+
+    `history` são as falas anteriores, da mais antiga para a mais nova: sem
+    elas, cada pergunta chega ao modelo sem memória da conversa. Já
+    `system_instruction` é o contexto fixo — quem o modelo é e o que ele sabe
+    sobre o usuário — e fica separado das falas para que nenhuma mensagem do
+    usuário consiga se passar por ele.
+    """
+    payload = _build_payload(question, history, system_instruction)
+    return _extract_text(_generate(payload))
+
+
+def ask_llm_json(
+    prompt: str,
+    *,
+    response_schema: dict[str, Any],
+    system_instruction: str | None = None,
+) -> Any:
+    """Pede ao modelo uma resposta em JSON no formato de `response_schema`.
+
+    O schema faz o provedor gerar JSON sintaticamente válido, mas não garante
+    que os valores façam sentido: quem chama ainda precisa validar o resultado
+    (com Pydantic) antes de confiar nele.
+    """
+    payload = _build_payload(prompt, (), system_instruction)
+    payload["generationConfig"] = {
+        "responseMimeType": "application/json",
+        "responseSchema": response_schema,
+    }
+
+    text = _extract_text(_generate(payload))
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.warning("Provedor de LLM devolveu JSON inválido: %s", text[:500])
+        raise LLMUnavailableError("O provedor respondeu fora do formato JSON.") from exc
+
+
+def _build_payload(
+    question: str, history: Sequence[ChatTurn], system_instruction: str | None
+) -> dict[str, Any]:
+    contents = [
+        {
+            "role": "model" if turn.role == "assistant" else "user",
+            "parts": [{"text": turn.content}],
+        }
+        for turn in history
+    ]
+    contents.append({"role": "user", "parts": [{"text": question}]})
+
+    payload: dict[str, Any] = {"contents": contents}
+    if system_instruction:
+        payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
+    return payload
+
+
+def _generate(payload: dict[str, Any]) -> dict[str, Any]:
+    """Faz a chamada HTTP, com retentativa, e devolve o corpo da resposta."""
     if not settings.gemini_api_key:
         raise LLMNotConfiguredError(
             "GEMINI_API_KEY não está definida no ambiente do backend."
         )
 
     url = f"{BASE_URL}/models/{settings.gemini_model}:generateContent"
-    payload = {"contents": [{"parts": [{"text": question}]}]}
 
     with httpx.Client(timeout=TIMEOUT) as client:
         for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -93,7 +171,7 @@ def ask_llm(question: str) -> str:
                 raise LLMUnavailableError(str(exc)) from exc
 
             if response.status_code == httpx.codes.OK:
-                return _extract_text(response.json())
+                return response.json()
 
             # O corpo de erro do provedor vai para o log, não para a resposta
             # HTTP: ele pode conter detalhes de infraestrutura que não
